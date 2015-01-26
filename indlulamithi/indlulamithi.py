@@ -52,16 +52,18 @@ def indlulamithi(datedir):
 
 class indlulamithiWindow(QtGui.QMainWindow):
 
-    def __init__(self, datadir):
+    def __init__(self, datadir, run_clean=True):
         self.datadir = datadir
         self.w1=6500
         self.w2=6700
 
         #set up the observing log
-        self.header_list = gr.default_headers
+        self.header_list = gr.default_headers + [' S/N ', ' n1   ', ' n2   ', ' w1      ', ' w2      ']
+        print self.header_list
         self.image_list = glob.glob(datadir+'a*fits')
         self.obs_dict = gr.create_observing_dict(self.image_list, header_list=self.header_list)
         self.nrow = len(self.obs_dict)
+        self.load_data()
   
       
         # Setup widget
@@ -107,6 +109,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         self.obstable.setColumnCount(len(self.header_list))
         self.obstable.setHorizontalHeaderLabels(self.header_list)
 
+        #if run_clean: self.run_clean_data()
         self.update_table()
 
 
@@ -146,7 +149,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         keys = self.obs_dict.keys()
         keys.sort()
         for i, k in enumerate(keys):
-           self.setrow(i, resize=False)
+           self.setrow(i, resize=True)
 
 
         for j in range(0, len(self.header_list)):
@@ -177,18 +180,52 @@ class indlulamithiWindow(QtGui.QMainWindow):
         """Process all files"""
         self.image_list = glob.glob(datadir+'a*fits')
         self.obs_dict = gr.create_observing_dict(self.image_list, header_list=self.header_list)
-        self.update_table()
   
         #check to see if the camera flats exist
         if not os.path.isfile(self.datadir+'camera_flat.fits'):
             logging.warning('\ncamera_flat.fits does not exist.  Not processing data.')
             return
 
-        self.msgBox.append('\n')
         keys = self.obs_dict.keys()
         keys.sort()
         for k in keys:
             self.clean_data(k, self.obs_dict[k])
+        self.load_data()
+        self.update_table()
+
+    def load_data(self):
+        keys = self.obs_dict.keys()
+        keys.sort()
+        for img in keys:
+            profile=self.datadir+'r'+img  
+            if self.obs_dict[img][1]=='ARC':
+                 solfile=self.datadir+'r'+img.replace('fits', 'pkl')
+            elif self.obs_dict[img][1] in ['FLAT', 'CAMERA', 'JUNK']:
+                 continue
+            else:
+                 img_arc = self.find_closest_image(img, 'ARC')
+                 solfile = 'r' + img_arc.replace('fits', 'pkl')
+                 try:
+                     hdu = fits.open('s'+img)
+                     self.obs_dict[img][7] = '%i' % hdu[1].header['SN']
+                     hdu.close()
+                 except:
+                     pass
+                 
+            if os.path.isfile(solfile):
+                sol_dict = pickle.load(open(solfile))
+                keys = np.array(sol_dict.keys())
+                n1 = keys.min()
+                n2 = keys.max()
+                ws = sol_dict[n1][4]
+                w2 = ws(24)
+                ws = sol_dict[n2][4]
+                w1 = ws(1077)
+                self.obs_dict[img][8]='%3i' % int(n1)
+                self.obs_dict[img][9]='%3i' % int(n2)
+                self.obs_dict[img][10]='%6.2f' % w1
+                self.obs_dict[img][11]='%6.2f' % w2
+
 
     def clean_data(self, img, hdr):
         """Fully process a single file"""
@@ -218,7 +255,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         elif hdr[1]=='ARC':
             img_orders = self.find_closest_image(img, 'FLAT')
             if img_orders is None: 
-                 self.msgBox.append('\nNo fiber flats are available.  Not processing data.' % img)
+                 logging.info('\nNo fiber flats are available.  Not processing data.' % img)
                  return 
             img_orders = 'r' + img_orders.replace('fits', 'orders')
             orders = np.loadtxt(img_orders)
@@ -231,7 +268,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
             img_arc = 'r' + img_arc.replace('fits', 'pkl')
             sol_dict = pickle.load(open(img_arc))
             outfile = 's' + img
-            extract_spectra(ccd, sol_dict, dy=5, outfile=outfile)
+            xarr, warr, farr, farr_err, norders, sn=extract_spectra(ccd, sol_dict, dy=5, outfile=outfile)
  
         return 
         
@@ -264,7 +301,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         for k in self.obs_dict:
             if self.obs_dict[k][1] == 'CAMERA': img_list.append(self.obs_dict[k][0])
         print img_list
-        self.msgBox.append('\nCreate a new camera flat with name %s\n' % outfile) 
+        logging.log('\nCreate a new camera flat with name %s\n' % outfile) 
         gr.make_camera_flat(img_list, outfile)
         
 

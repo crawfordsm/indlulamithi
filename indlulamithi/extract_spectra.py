@@ -304,6 +304,8 @@ def extract_spectra(ccd, sol_dict, dy=5, outfile=None):
            all_farr_err = np.concatenate((all_farr_err, 1.0*abs(farr)**0.5))
            all_order = np.concatenate((all_order, 0.0 * xarr + n))
 
+    #estimate the signal to noise
+    sn = (all_farr**0.5).mean()
 
     if outfile is not None:
         colx = fits.Column(name='x', format='D', array=all_xarr)
@@ -314,9 +316,9 @@ def extract_spectra(ccd, sol_dict, dy=5, outfile=None):
         cols = [colx, colw, colf, cole, colo]
 
         tbhdu = fits.BinTableHDU.from_columns(cols)
+        tbhdu.header.update('SN', sn, 'Mean Signal to Noise')
         tbhdu.writeto(outfile, clobber=True) 
-
-    return all_xarr, all_warr, all_farr, all_farr_err, all_order
+    return all_xarr, all_warr, all_farr, all_farr_err, all_order, sn
 
 
 
