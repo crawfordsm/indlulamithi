@@ -8,7 +8,7 @@ import datetime
 import glob
 import pickle
 import logging
-logging.disable('info')
+#logging.disable('info')
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,7 +20,7 @@ from PyQt4 import QtGui, QtCore
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
+from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
 
 
 import  giraffe_reduce as gr
@@ -83,7 +83,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         self.arcButton = QtGui.QPushButton("Arc Drift")
         self.arcButton.clicked.connect(self.close)
 
-        welcome_msg = 'Welcome to Indlulamithi--Giraffe Data Reduction'
+        welcome_msg = logging.info('Welcome to Indlulamithi--Giraffe Data Reduction')
         self.msgBox = QtGui.QTextEdit(welcome_msg) 
         self.msgBox.setMaximumHeight(150)
         self.msgBox.setReadOnly(True)
@@ -162,7 +162,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         hdu = fits.open(specfile.strip())
         warr = hdu[1].data['wavelength']
         farr = hdu[1].data['flux']
-        self.msgBox.append('Plotting Spectra')
+        logging.info('Plotting Spectra for %s' % specfile)
         ax = self.figure.add_subplot(111)
         ax.hold(False)
         ax.plot(warr, farr)
@@ -181,7 +181,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
   
         #check to see if the camera flats exist
         if not os.path.isfile(self.datadir+'camera_flat.fits'):
-            self.msgBox.append('\ncamera_flat.fits does not exist.  Not processing data.')
+            logging.warning('\ncamera_flat.fits does not exist.  Not processing data.')
             return
 
         self.msgBox.append('\n')
@@ -196,24 +196,24 @@ class indlulamithiWindow(QtGui.QMainWindow):
         #check to see if the camera flats exist
         cam_flat = self.datadir+'camera_flat.fits'
         if not os.path.isfile(cam_flat):
-            self.msgBox.append('\ncamera_flat.fits does not exist.  Not processing data.' % img)
+            logging.warning('\ncamera_flat.fits does not exist.  Not processing data.' % img)
 
         profile=self.datadir+'r'+img    
         #first check to see if the data has already been reduced
         if os.path.isfile(profile): 
-            self.msgBox.append('Image %s has already been processed' % img)
+            logging.warning('Image %s has already been processed' % img)
             return
 
         #pass it through basic processing
-        self.msgBox.append('Processing %s' % img)
+        logging.info('Processing %s' % img)
         ccd = gr.giraffe_reduce(self.datadir+img, camera_flat=cam_flat, outfile=profile)
  
         #check what type of data it is and then run any more
         #advance processing on it
         if hdr[1]=='FLAT': 
             ordfile=profile.replace('fits', 'orders')
-            #make_orders(ccd.data, xc=680, limit=1.5, image_size=10, order_size=2, outfile=ordfile)
-        elif hdr[1]=='CAMERA':
+            make_orders(ccd.data, xc=680, limit=1.5, image_size=10, order_size=2, outfile=ordfile)
+        elif hdr[1]=='CAMERA' or hdr[1]=='JUNK':
             pass
         elif hdr[1]=='ARC':
             img_orders = self.find_closest_image(img, 'FLAT')
