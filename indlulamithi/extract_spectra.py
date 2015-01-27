@@ -150,13 +150,13 @@ def extract_data(data, orders, ys):
    return xarr, farr
 
 
-def match_order(xarr, farr, n1, n2, dw=20, gamma=6.28, cam_foc=475):
+def match_order(xarr, farr, n1, n2, arcfile='data/thar.fits', dw=20, gamma=6.28, cam_foc=475):
     """Find the order that best matches the extract data.  
 
    
     """
  
-    spec = getfitsspec()
+    spec = getfitsspec(arcfile=arcfile)
 
     orders_arr = np.arange(n1,n2)
     bestcc_arr = 0.0*orders_arr
@@ -178,7 +178,7 @@ def match_order(xarr, farr, n1, n2, dw=20, gamma=6.28, cam_foc=475):
     n = orders_arr[bestcc_arr.argmax()]
     return n
 
-def find_first_order(data, orders, n1=60, n2=160):
+def find_first_order(data, orders, arcfile='data/thar.fits', n1=60, n2=160, dw=10, gamma=6.28, cam_foc=475):
     """Find the first order in the array
     """
     ypos = orders[:,0]
@@ -186,21 +186,22 @@ def find_first_order(data, orders, n1=60, n2=160):
     for i in range(len(ypos)):
         yc = ypos[i]
         xarr, farr = extract_data(data, orders, yc)
-        norder = match_order(xarr, farr, n1, n2, dw=20)
+        norder = match_order(xarr, farr, n1, n2, arcfile=arcfile, dw=dw, gamma=gamma, cam_foc=cam_foc)
         ord_arr[i] = norder
 
     xarr = np.arange(len(ord_arr))
     return stats.mode(ord_arr-xarr)[0][0]
 
 
-def fit_gamma(xarr, f, n, dw=10, gamma=6.413, dg1=-0.3, dg2=0.3, dgs=0.01,
+def fit_gamma(xarr, f, n, arcfile='thar.fits', dw=10, gamma=6.413, dg1=-0.3, dg2=0.3, dgs=0.01,
               cam_foc=475):
     """Determine the best value for gamma
     """
     #set up the data
     y = get_wavelength(xarr, n, gamma = gamma, cam_foc=cam_foc)
-    spec = getfitsspec()
+    spec = getfitsspec(arcfile=arcfile)
     mask = (spec.wavelength > y.min()-dw)*(spec.wavelength < y.max()+dw)
+    if mask.sum()==0: return gamma
     sw = spec.wavelength[mask]
     sf = spec.flux[mask]
     gamma_arr = np.arange(dg1, dg2, dgs)
@@ -265,14 +266,14 @@ def wavelength_solution(xarr, farr, n, arcfile='data/thar_list.txt',
            return ws
     return ws
 
-def fit_all_orders(data, orders, n1, outfile, arcfile='data/thar_list.txt',
+def fit_all_orders(data, orders, n1, outfile, arcfile='data/thar.fits', wsarcfile='data/thar_list.txt',
                    dw=3, gamma = 6.4, cam_foc=475):
     ypos = orders[:,0]
     sol_dict={}
     for i, yc in enumerate(ypos):
         xarr, farr = extract_data(data, orders, yc)
-        gamma = fit_gamma(xarr, farr, n1+i, dw=dw, gamma=gamma, cam_foc=cam_foc)
-        ws = wavelength_solution(xarr, farr,  n1+i, arcfile=arcfile, gamma = gamma, cam_foc=cam_foc)
+        gamma = fit_gamma(xarr, farr, n1+i, arcfile=arcfile, dw=dw, gamma=gamma, cam_foc=cam_foc)
+        ws = wavelength_solution(xarr, farr,  n1+i, arcfile=wsarcfile, gamma = gamma, cam_foc=cam_foc)
         sol_dict[n1+i] = [yc, gamma, cam_foc, orders[i], ws]
 
     pout = open(outfile, 'wb')
@@ -305,7 +306,9 @@ def extract_spectra(ccd, sol_dict, dy=5, outfile=None):
            all_order = np.concatenate((all_order, 0.0 * xarr + n))
 
     #estimate the signal to noise
-    sn = (all_farr**0.5).mean()
+    sn = (abs(all_farr)**0.5).mean()
+    print sn
+    if sn<0: sn = 0
 
     if outfile is not None:
         colx = fits.Column(name='x', format='D', array=all_xarr)

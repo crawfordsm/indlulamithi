@@ -7,8 +7,6 @@ from scipy import ndimage as nd
 from astropy.io import fits
 from astropy import stats
 
-import scipy.optimize as optimize
-
 
 def minflattenimage(data, size=10):
     """Smooth the image and flatten it using the minimum value in the image

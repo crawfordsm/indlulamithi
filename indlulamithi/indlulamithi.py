@@ -8,7 +8,8 @@ import datetime
 import glob
 import pickle
 import logging
-#logging.disable('info')
+logging.disable('warning')
+logging.disable('info')
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,9 +26,9 @@ from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as Navigatio
 
 import  giraffe_reduce as gr
 from makeorders import make_orders
-from extract_spectra import find_first_order, fit_all_orders, extract_spectra
+from extract_spectra import find_first_order, fit_all_orders, extract_spectra, get_wavelength
 
-def indlulamithi(datedir):
+def indlulamithi(datedir, obsdate=None, copy_data=False):
     """indlulamithi is the interactive data reduction program for the Giraffe
        spectragraph on the 1.9m telescope
 
@@ -39,10 +40,10 @@ def indlulamithi(datedir):
     #create GUI
     App = QtGui.QApplication([])
 
-    aw = indlulamithiWindow(datedir)
+    aw = indlulamithiWindow(datedir, obsdate=obsdate, copy_data=copy_data)
 
-    aw.setMinimumHeight(800)
-    aw.setMinimumWidth(500)
+    aw.setMinimumHeight(900)
+    aw.setMinimumWidth(900)
     aw.show()
 
     # Start application event loop
@@ -52,10 +53,14 @@ def indlulamithi(datedir):
 
 class indlulamithiWindow(QtGui.QMainWindow):
 
-    def __init__(self, datadir, run_clean=True):
+    def __init__(self, datadir,  obsdate=None, copy_data=False, run_clean=True):
         self.datadir = datadir
-        self.w1=6500
-        self.w2=6700
+        self.obsdate = obsdate
+        self.copy_data = copy_data
+        if obsdate is not None:
+            self.archivedir = '/data/74in/giraffe/data/image/%s/' % obsdate 
+        self.w1=4500
+        self.w2=5500
 
         #set up the observing log
         self.header_list = gr.default_headers + [' S/N ', ' n1   ', ' n2   ', ' w1      ', ' w2      ']
@@ -126,7 +131,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         mainLayout.addWidget(self.calLabel,1,0,1,1)
         mainLayout.addWidget(self.flatButton,1,1,1,1)
         mainLayout.addWidget(self.proButton,1,2,1,1)
-        mainLayout.addWidget(self.arcButton,1,3,1,1)
+        #mainLayout.addWidget(self.arcButton,1,3,1,1)
 
         mainLayout.addWidget(self.obstable,2,0,2,5)
         mainLayout.addWidget(self.canvas,4,0,2,5)
@@ -148,6 +153,12 @@ class indlulamithiWindow(QtGui.QMainWindow):
     def update_table(self):
         keys = self.obs_dict.keys()
         keys.sort()
+        self.nrows = len(keys)
+        print self.nrows, self.obstable.rowCount()
+        for i in range(self.obstable.rowCount(), self.nrows):
+            print i
+            self.obstable.insertRow(i-1)
+       
         for i, k in enumerate(keys):
            self.setrow(i, resize=True)
 
@@ -158,6 +169,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
     def plotspectra(self):
         i = self.obstable.currentRow()
         specfile='s' + str(self.obstable.item(i,0).text())
+        print specfile
         if not os.path.isfile(specfile):
            msg = 'Invalid row selected'
            print msg
@@ -178,7 +190,16 @@ class indlulamithiWindow(QtGui.QMainWindow):
 
     def run_clean_data(self):
         """Process all files"""
-        self.image_list = glob.glob(datadir+'a*fits')
+
+        if self.copy_data:
+           print 'Running copy'
+           img_list = glob.glob(self.archivedir+"a*fits")
+           for img in img_list:
+                 if not os.path.isfile(self.datadir+os.path.basename(img)):
+                      shutil.copy(img, self.datadir)
+             
+
+        self.image_list = glob.glob(self.datadir+'a*fits')
         self.obs_dict = gr.create_observing_dict(self.image_list, header_list=self.header_list)
   
         #check to see if the camera flats exist
@@ -188,10 +209,21 @@ class indlulamithiWindow(QtGui.QMainWindow):
 
         keys = self.obs_dict.keys()
         keys.sort()
+        #first run through flats
         for k in keys:
-            self.clean_data(k, self.obs_dict[k])
+            if self.obs_dict[k][1]=='FLAT':
+                 self.clean_data(k, self.obs_dict[k])
+        #then the arcs
+        for k in keys:
+            if self.obs_dict[k][1]=='ARC':
+                 self.clean_data(k, self.obs_dict[k])
+        #then everything else
+        for k in keys:
+            if self.obs_dict[k][1] not in ['CAMERA', 'JUNK', 'ARC', 'FLAT']:
+                 self.clean_data(k, self.obs_dict[k])
         self.load_data()
         self.update_table()
+        print 'Finished Processing Data'
 
     def load_data(self):
         keys = self.obs_dict.keys()
@@ -207,7 +239,10 @@ class indlulamithiWindow(QtGui.QMainWindow):
                  solfile = 'r' + img_arc.replace('fits', 'pkl')
                  try:
                      hdu = fits.open('s'+img)
-                     self.obs_dict[img][7] = '%i' % hdu[1].header['SN']
+                     try:
+                          self.obs_dict[img][7] = '%i' % hdu[1].header['SN']
+                     except:
+                          pass
                      hdu.close()
                  except:
                      pass
@@ -234,6 +269,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         cam_flat = self.datadir+'camera_flat.fits'
         if not os.path.isfile(cam_flat):
             logging.warning('\ncamera_flat.fits does not exist.  Not processing data.' % img)
+            return
 
         profile=self.datadir+'r'+img    
         #first check to see if the data has already been reduced
@@ -242,6 +278,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
             return
 
         #pass it through basic processing
+        print 'Processing %s' % img
         logging.info('Processing %s' % img)
         ccd = gr.giraffe_reduce(self.datadir+img, camera_flat=cam_flat, outfile=profile)
  
@@ -259,16 +296,28 @@ class indlulamithiWindow(QtGui.QMainWindow):
                  return 
             img_orders = 'r' + img_orders.replace('fits', 'orders')
             orders = np.loadtxt(img_orders)
-            n1 = find_first_order(ccd.data, orders, n1=60, n2=160)
+            arcfile = os.path.dirname(gr.__file__)+'/data/thar.fits'
+            n1 = find_first_order(ccd.data, orders, arcfile=arcfile, n1=55, n2=160)
+            print 'First order: ', n1 
+            print 'Last order: ', n1 + len(orders)
+            print 'First Wavelength:', get_wavelength(680, n1+len(orders))
+            print 'Last Wavelength:', get_wavelength(680, n1)
             solfile = profile.replace('fits', 'pkl')
-            arcfile = os.path.dirname(gr.__file__)+'/data/thar_list.txt'
-            fit_all_orders(ccd.data, orders, n1, outfile=solfile, arcfile=arcfile,  dw=3, gamma = 6.4, cam_foc=475)
+            wsarcfile = os.path.dirname(gr.__file__)+'/data/thar_list.txt'
+            fit_all_orders(ccd.data, orders, n1, outfile=solfile, 
+                           arcfile=arcfile,  wsarcfile=wsarcfile, dw=3, 
+                           gamma = 6.4, cam_foc=475)
+            outfile = 's' + img
+            sol_dict = pickle.load(open(solfile))
+            xarr, warr, farr, farr_err, norders, sn = \
+                  extract_spectra(ccd, sol_dict, dy=5, outfile=outfile)
         else:
             img_arc = self.find_closest_image(img, 'ARC')
             img_arc = 'r' + img_arc.replace('fits', 'pkl')
             sol_dict = pickle.load(open(img_arc))
             outfile = 's' + img
-            xarr, warr, farr, farr_err, norders, sn=extract_spectra(ccd, sol_dict, dy=5, outfile=outfile)
+            xarr, warr, farr, farr_err, norders, sn = \
+                  extract_spectra(ccd, sol_dict, dy=5, outfile=outfile)
  
         return 
         
@@ -301,7 +350,7 @@ class indlulamithiWindow(QtGui.QMainWindow):
         for k in self.obs_dict:
             if self.obs_dict[k][1] == 'CAMERA': img_list.append(self.obs_dict[k][0])
         print img_list
-        logging.log('\nCreate a new camera flat with name %s\n' % outfile) 
+        logging.info('\nCreate a new camera flat with name %s\n' % outfile) 
         gr.make_camera_flat(img_list, outfile)
         
 
@@ -340,7 +389,8 @@ if __name__=='__main__':
        opts, args = getopt.getopt(sys.argv[1:],"h:d:",["help","date="])
     except getopt.GetoptError:
        sys.exit(2)
-
+ 
+    obsdate=None
     for o, a in opts:
        if o in ("-h", "--help"):
            print indlulamithi.__doc__
@@ -354,7 +404,17 @@ if __name__=='__main__':
                print indlulamithi.__doc__
                sys.exit(2)
 
-    datadir=os.getcwd()+'/'
+    if obsdate is None : 
+       datadir=os.getcwd()+'/'
+       copy_data=False
+    else:
+       if not os.path.isdir(obsdate):
+            os.mkdir(obsdate)
+       os.chdir(obsdate)
+       
+       datadir=os.getcwd()+'/'
+       copy_data=True
+       
     print datadir
-    indlulamithi(datadir)
+    indlulamithi(datadir, obsdate=obsdate, copy_data=copy_data)
    

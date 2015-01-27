@@ -158,7 +158,10 @@ def create_observing_dict(image_list, header_list=default_headers):
         ccd = ccdproc.CCDData.read(img, unit=u.adu)
         hdr_list=[img]
         for hdr in header_list[1:]:
-            hdr_list.append(ccd.header[hdr])
+            try:
+                 hdr_list.append(ccd.header[hdr])
+            except:
+                 hdr_list.append('')
         obs_dict[os.path.basename(img)] = hdr_list
     return obs_dict
 
